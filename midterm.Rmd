@@ -1,0 +1,485 @@
+---
+title: "MIDTERM 615"
+author: "Yang Xiao"
+date: "2023-11-03"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+## 1. Flooding data cleaning an EDA
+
+###  1.1 cleaning and merge two dataset
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(ggplot2)
+
+
+disaster_declarations_df <- read_csv('DisasterDeclarationsSummaries.csv')
+fema_web_summaries_df <- read_csv('FemaWebDisasterSummaries.csv')
+
+flood_declarations_df <- disaster_declarations_df %>%
+  filter(incidentType == 'Flood', fyDeclared %in% c(2020, 2021))
+
+flood_disaster_numbers <- unique(flood_declarations_df$disasterNumber)
+
+## Filter the FEMA web summaries data for the corresponding disaster numbers
+flood_financials_df <- fema_web_summaries_df %>%
+  filter(disasterNumber %in% flood_disaster_numbers)
+
+## Merge the two datasets on the 'disasterNumber' column
+combined_flood_data_df <- inner_join(flood_declarations_df, flood_financials_df, by = 'disasterNumber')
+
+## Group by 'disasterNumber' and aggregate the financial data
+combined_flood_data_aggregated <- combined_flood_data_df %>%
+  group_by(disasterNumber) %>%
+  summarise(
+    totalNumberIaApproved = sum(totalNumberIaApproved, na.rm = TRUE),
+    totalAmountIhpApproved = sum(totalAmountIhpApproved, na.rm = TRUE),
+    totalAmountHaApproved = sum(totalAmountHaApproved, na.rm = TRUE),
+    totalAmountOnaApproved = sum(totalAmountOnaApproved, na.rm = TRUE),
+    totalObligatedAmountPa = sum(totalObligatedAmountPa, na.rm = TRUE),
+    totalObligatedAmountCatAb = sum(totalObligatedAmountCatAb, na.rm = TRUE),
+    totalObligatedAmountCatC2g = sum(totalObligatedAmountCatC2g, na.rm = TRUE),
+    totalObligatedAmountHmgp = sum(totalObligatedAmountHmgp, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+head(combined_flood_data_aggregated)
+```
+
+
+
+
+
+
+###  1.2 Plotting for Visualization
+
+
+
+#### (a) Individual Assistance (IA)
+
+
+```{r}
+ggplot(combined_flood_data_aggregated, aes(x = disasterNumber, y = totalAmountIhpApproved)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Total Amount of Individual Assistance Approved", x = "Disaster Number", y = "Total Amount Approved (in billion $)")
+```
+The first bar chart shows the total amount of Individual Assistance approved for each disaster.
+
+
+#### (b) Public Assistance (PA)
+
+```{r}
+ggplot(combined_flood_data_aggregated, aes(x = disasterNumber, y = totalObligatedAmountPa)) +
+  geom_bar(stat = "identity", fill = "firebrick") +
+  theme_minimal() +
+  labs(title = "Total Obligated Amount for Public Assistance", x = "Disaster Number", y = "Total Amount Obligated (in billion $)")
+```
+
+The second chart illustrates the total obligated amount for Public Assistance for each disaster, also in billions of dollars.
+
+
+
+#### (c) Hazard Mitigation Grant Program (HMGP)
+
+```{r}
+ggplot(combined_flood_data_aggregated, aes(x = disasterNumber, y = totalObligatedAmountHmgp)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  theme_minimal() +
+  labs(title = "Total Obligated Amount for Hazard Mitigation Grant Program", x = "Disaster Number", y = "Total Amount Obligated (in billion $)")
+
+
+```
+
+
+The third chart presents the total obligated amount for the Hazard Mitigation Grant Program for each disaster, in billions of dollars.
+
+
+From these charts, we can observe significant differences in the financial assistance provided by different disaster events. Some disasters have a much greater financial impact and require more assistance than others.
+
+
+## 2. explore Top 10 States by Disaster Counts recent 10 years
+
+### 2.1 initial question
+
+(a) How does the number of disasters change over time? 
+
+(b) And what are the change curves of the ten continents that have received the most disasters in the past 10 years? 
+
+(c) What does this indicate or reflect?
+
+
+### 2.2 EDA and Solution
+
+
+#### (a) Overall bar chart of disasters over time
+
+```{r}
+
+# Descriptive statistics analysis
+disaster_annual_summary <- disaster_declarations_df %>%
+  group_by(fyDeclared) %>%
+  summarise(
+    totalDisasters = n(),
+    disasterTypes = list(unique(incidentType))
+  )
+
+# Print the number and types of disasters for different years
+print(disaster_annual_summary)
+
+# plot for change of disasters per year
+ggplot(disaster_declarations_df, aes(x = fyDeclared)) +
+  geom_histogram(binwidth = 1, fill = "blue") +
+  theme_minimal() +
+  labs(title = "Annual Number of Disasters", x = "Year", y = "Number of Disasters")
+```
+
+
+According to the graph, it can be observed that the distribution of disasters is random and seems to have little to do with the year. However, compared to before and after 1950, the overall trend is still on the rise.
+
+
+
+#### (b) Top 10 States
+
+```{r}
+# Financial impact analysis - Distribution of financial assistance by year
+financial_annual_summary <- combined_flood_data_aggregated %>%
+  left_join(disaster_declarations_df %>% select(disasterNumber, fyDeclared), by = "disasterNumber") %>%
+  group_by(fyDeclared) %>%
+  summarise(
+    totalIhpApproved = sum(totalAmountIhpApproved, na.rm = TRUE),
+    totalPaObligated = sum(totalObligatedAmountPa, na.rm = TRUE),
+    totalHmgpObligated = sum(totalObligatedAmountHmgp, na.rm = TRUE)
+  )
+
+
+print(financial_annual_summary)
+
+disasters_2014_2024 <- disaster_declarations_df %>%
+  filter(fyDeclared >= 2014, fyDeclared <= 2024)
+
+# Count the number of disasters by state
+state_disaster_counts <- disasters_2014_2024 %>%
+  count(state, sort = TRUE)
+
+
+top10_states_disasters <- head(state_disaster_counts, 10)
+top10_states_disasters
+# Create a bar chart to display the number of disasters for the top 10 states
+ggplot(top10_states_disasters, aes(x = reorder(state, n), y = n)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +
+  coord_flip() + # For horizontal bars
+  theme_minimal() +
+  labs(title = "Top 10 States by Disaster Counts (2014-2024)", x = "State", y = "Number of Disasters")
+
+
+```
+
+We can obtain the ten continents with the highest number of disasters, which have been presented in the code and table. We can see that the continent with the most disasters in the past decade has been Texas(n=1549).
+
+
+#### (c) Conclusion
+
+This means that these ten continents have the highest number of disasters, and they should strengthen their disaster prevention measures and have increased their financial expenditure on disasters.
+
+
+
+## 3. Population for whom poverty status is determined date cleaning and EDA
+
+### 3.1 data cleaning and merge the data from 2020 and 2021
+
+
+
+```{r}
+
+
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# Load the 2020 data
+data_2020 <- read_csv("ACSST5Y2020.S1701-Data.csv")
+
+# Select columns and rename for clarity
+gender_poverty_2020 <- data_2020 %>%
+  select(
+    NAME,
+    Total_Male_Population = S1701_C01_011E,
+    Male_Population_Below_Poverty = S1701_C02_011E,
+    Percent_Male_Population_Below_Poverty = S1701_C03_011E,
+    Total_Female_Population = S1701_C01_012E,
+    Female_Population_Below_Poverty = S1701_C02_012E,
+    Percent_Female_Population_Below_Poverty = S1701_C03_012E
+  ) %>%
+  mutate(
+    Total_Male_Population = as.numeric(Total_Male_Population),
+    Male_Population_Below_Poverty = as.numeric(Male_Population_Below_Poverty),
+    Total_Female_Population = as.numeric(Total_Female_Population),
+    Female_Population_Below_Poverty = as.numeric(Female_Population_Below_Poverty)
+  ) %>%
+  mutate(
+    Male_Poverty_Rate = Male_Population_Below_Poverty / Total_Male_Population,
+    Female_Poverty_Rate = Female_Population_Below_Poverty / Total_Female_Population
+  ) %>%
+  na.omit()
+
+
+
+data_2021 <- read_csv("ACSST5Y2021.S1701-Data.csv")
+
+# Repeat the process for 2021 data
+gender_poverty_2021 <- data_2021 %>%
+  select(
+    NAME,
+    Total_Male_Population = S1701_C01_011E,
+    Male_Population_Below_Poverty = S1701_C02_011E,
+    Percent_Male_Population_Below_Poverty = S1701_C03_011E,
+    Total_Female_Population = S1701_C01_012E,
+    Female_Population_Below_Poverty = S1701_C02_012E,
+    Percent_Female_Population_Below_Poverty = S1701_C03_012E
+  ) %>%
+  mutate(
+    Total_Male_Population = as.numeric(Total_Male_Population),
+    Male_Population_Below_Poverty = as.numeric(Male_Population_Below_Poverty),
+    Total_Female_Population = as.numeric(Total_Female_Population),
+    Female_Population_Below_Poverty = as.numeric(Female_Population_Below_Poverty)
+  ) %>%
+  mutate(
+    Male_Poverty_Rate = Male_Population_Below_Poverty / Total_Male_Population,
+    Female_Poverty_Rate = Female_Population_Below_Poverty / Total_Female_Population
+  ) %>%
+  na.omit()
+
+# Merge the datasets by NAME
+merged_poverty <- left_join(gender_poverty_2020, gender_poverty_2021, by = "NAME", suffix = c("_2020", "_2021"))
+
+head(merged_poverty)
+
+```
+
+
+
+
+### 3.2 Explore the sex and year for the poor people distribution
+
+
+```{r}
+
+# Calculate the change in poverty rate
+merged_poverty <- merged_poverty %>%
+  mutate(
+    Male_Poverty_Rate_Change = Male_Poverty_Rate_2021 - Male_Poverty_Rate_2020,
+    Female_Poverty_Rate_Change = Female_Poverty_Rate_2021 - Female_Poverty_Rate_2020
+  )
+
+# Histogram of poverty rate change
+ggplot(merged_poverty, aes(x = Male_Poverty_Rate_Change)) +
+  geom_histogram(binwidth = 0.01, fill = "blue", alpha = 0.5) +
+  labs(title = "Histogram of Male Poverty Rate Change 2020-2021")
+
+ggplot(merged_poverty, aes(x = Female_Poverty_Rate_Change)) +
+  geom_histogram(binwidth = 0.01, fill = "red", alpha = 0.5) +
+  labs(title = "Histogram of Female Poverty Rate Change 2020-2021")
+```
+
+
+The histogram shows the distribution of changes in male and female poverty rates from 2020 to 2021.
+
+
+```{r}
+# Boxplot of poverty rate change
+ggplot(merged_poverty) +
+  geom_boxplot(aes(x = factor(0), y = Male_Poverty_Rate_Change), fill = "blue") +
+  geom_boxplot(aes(x = factor(1), y = Female_Poverty_Rate_Change), fill = "red") +
+  labs(title = "Boxplot of Poverty Rate Change by Gender 2020-2021") +
+  xlab("Gender") +
+  ylab("Poverty Rate Change") +
+  scale_x_discrete(labels = c("Male", "Female"))
+
+
+
+
+```
+
+The box plot provides more detailed information about the distribution of changes.
+
+
+
+### 3.3  Conclusion
+
+
+
+1.The histogram of the change in male poverty rate shows that most values are concentrated near zero, which means that for many regions, there is no significant change in male poverty rate.
+
+2.The histogram of the change in female poverty rate also shows a similar pattern,but overall, it appears that the downward trend in female poverty rate is more pronounced.
+
+3.The median change for both genders is close to zero, indicating that over half of the regions have experienced very small changes in poverty rates.
+
+4.The quartile range for women is slightly wider than that for men, indicating that changes in female poverty rates are more dispersed across regions.
+
+
+
+## 4. combine Population for whom poverty and flooding
+
+
+
+### 4.1 data merge and  organization
+
+
+```{r}
+
+library(tidyverse)
+library(readr)
+
+poverty_data_2020_df <- data_2020
+
+
+# Filter out flood disasters
+flood_disasters <- filter(disaster_declarations_df, incidentType == 'Flood')
+
+columns_to_use <- c('NAME', 'S1701_C01_011E', 'S1701_C02_011E', 'S1701_C01_012E', 'S1701_C02_012E')
+column_renames <- c('NAME', 'Total_Male_Population', 'Male_Population_Below_Poverty', 
+                    'Total_Female_Population', 'Female_Population_Below_Poverty')
+
+gender_poverty_df <- poverty_data_2020_df %>%
+  select(all_of(columns_to_use)) %>%
+  rename_with(~ column_renames) %>%
+  drop_na()
+
+# Convert columns to numeric
+for (col in column_renames[-1]) {
+  gender_poverty_df[[col]] <- as.numeric(gender_poverty_df[[col]])
+}
+
+
+flood_disasters <- flood_disasters %>%
+  mutate(County = str_replace(designatedArea, '\\(County\\)', ''),
+         State = state)
+
+gender_poverty_df <- gender_poverty_df %>%
+  separate(NAME, into = c('County', 'State'), sep = ', ', extra = 'merge') %>%
+  mutate(County = str_replace(County, ' County', ''))
+# A lookup table for state abbreviations and their full names
+state_name_mapping <- data.frame(
+  Abbreviation = c("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", 
+                   "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", 
+                   "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", 
+                   "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", 
+                   "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"),
+  FullName = c("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", 
+               "Connecticut", "Delaware", "Florida", "Georgia", 
+               "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", 
+               "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", 
+               "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", 
+               "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", 
+               "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", 
+               "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", 
+               "Washington", "West Virginia", "Wisconsin", "Wyoming")
+)
+
+# Assuming flood_disasters is your dataframe and it has a column 'state' with state abbreviations
+flood_disasters <- flood_disasters %>%
+  left_join(state_name_mapping, by = c("state" = "Abbreviation")) %>%
+  select(-state) %>%
+  rename(state = FullName)
+
+## Remove the na
+gender_poverty_df <- gender_poverty_df[-1, ]
+flood_disasters  <-flood_disasters[-1, ]
+
+# Merge the datasets
+
+merged_data <- merge(flood_disasters, gender_poverty_df, by.x = c("state", "County"), by.y = c("State", "County"), all.x = TRUE)
+## select the cols we need
+
+merged_data <- merged_data %>%
+  select(
+    
+    County ,
+    state,
+    Total_Female_Population,
+    Total_Male_Population,
+    Male_Population_Below_Poverty,
+    Female_Population_Below_Poverty
+    
+     
+  )
+
+# remove the na 
+merged_data <- na.omit(merged_data)
+
+
+head(merged_data)
+```
+
+
+
+### 4.2 initial question
+
+
+What conclusion can you draw by comparing the poverty rate in flood affected areas with the national average poverty rate and the average poverty rate in each state.
+
+### 4.3 EDA and Solution
+
+```{r}
+
+# Add the total columns to the gender_poverty_df
+gender_poverty_df <- gender_poverty_df %>%
+  mutate(Total_Population = Total_Male_Population + Total_Female_Population,
+         Total_Population_Below_Poverty = Male_Population_Below_Poverty + Female_Population_Below_Poverty)
+
+# Calculate the poverty rate for each county affected by floods
+merged_data <- merged_data %>%
+  mutate(Total_Population = Total_Male_Population + Total_Female_Population,
+         Total_Population_Below_Poverty = Male_Population_Below_Poverty + Female_Population_Below_Poverty,
+         Poverty_Rate = Total_Population_Below_Poverty / Total_Population)
+
+
+national_average_poverty_rate <- sum(gender_poverty_df$Total_Population_Below_Poverty) / 
+                                 sum(gender_poverty_df$Total_Population)
+
+# Calculate the average poverty rate for each state
+state_average_poverty_rates <- gender_poverty_df %>%
+  group_by(State) %>%
+  summarise(Total_Population_Below_Poverty = sum(Total_Population_Below_Poverty),
+            Total_Population = sum(Total_Population)) %>%
+  mutate(Poverty_Rate = Total_Population_Below_Poverty / Total_Population)
+
+# Calculate the average poverty rate for counties affected by floods
+average_poverty_rate_flood_affected <- mean(merged_data$Poverty_Rate)
+
+# Plotting the average poverty rates for comparison
+ggplot() +
+  geom_hline(yintercept = national_average_poverty_rate, color = 'blue', linetype = 'dashed') +
+  geom_point(data = state_average_poverty_rates, aes(x = State, y = Poverty_Rate), color = 'green') +
+  geom_hline(yintercept = average_poverty_rate_flood_affected, color = 'red') +
+  labs(x = 'State', y = 'Poverty Rate', title = 'Comparison of Poverty Rates: National, State, and Flood Affected Counties') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+```
+
+
+
+
+In this chart, we can see the following content:
+1.The blue dashed line represents the national average poverty rate.
+
+2.The green dots represent the average poverty rate for each state.
+
+3.The solid red line represents the average poverty rate of counties affected by floods.
+
+
+Conclusion: 
+
+ We can see that some states have poverty rates far above the national average, while the average poverty rate in flood affected areas is slightly higher than the national average.
