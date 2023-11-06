@@ -8,10 +8,252 @@ output:
   word_document: default
 ---
 
+## 1.Storm data cleaning an EDA
 
-## 1. Flooding data cleaning an EDA
+### 1.1 cleaning and merge two dataset
 
-###  1.1 cleaning and merge two dataset
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+
+# Read the data for 2020 and 2021
+storm_data_2020 <- read_csv("StormEvents_details-ftp_v1.0_d2020_c20230927.csv")
+storm_data_2021 <- read_csv("StormEvents_details-ftp_v1.0_d2021_c20231017.csv")
+
+# Filter for flood-related events
+flood_events_2020 <- filter(storm_data_2020, EVENT_TYPE %in% c('Flash Flood', 'Flood', 'Coastal Flood', 'Debris Flow', 'Lakeshore Flood'))
+flood_events_2021 <- filter(storm_data_2021, EVENT_TYPE %in% c('Flash Flood', 'Flood', 'Coastal Flood', 'Debris Flow', 'Lakeshore Flood'))
+
+# Handling missing values for 2020 and 2021
+columns_to_drop <- c('MAGNITUDE', 'MAGNITUDE_TYPE', 'CATEGORY', 'TOR_F_SCALE', 'TOR_LENGTH', 'TOR_WIDTH', 'TOR_OTHER_WFO', 'TOR_OTHER_CZ_STATE', 'TOR_OTHER_CZ_FIPS', 'TOR_OTHER_CZ_NAME')
+flood_events_2020_cleaned <- flood_events_2020[, !(names(flood_events_2020) %in% columns_to_drop)]
+flood_events_2021_cleaned <- flood_events_2021[, !(names(flood_events_2021) %in% columns_to_drop)]
+
+# Remove duplicates
+flood_events_2020_cleaned <- distinct(flood_events_2020_cleaned)
+flood_events_2021_cleaned <- distinct(flood_events_2021_cleaned)
+
+# Merge the datasets from 2020 and 2021
+flood_events_combined <- bind_rows(flood_events_2020_cleaned, flood_events_2021_cleaned)
+
+# Extract year and month from 'BEGIN_YEARMONTH'
+flood_events_combined$YEAR_MONTH <- substr(flood_events_combined$BEGIN_YEARMONTH, 1, 6)
+
+# Count the number of events for each month and plot
+monthly_events <- flood_events_combined %>%
+  group_by(YEAR_MONTH) %>%
+  summarise(Count = n()) %>%
+  arrange(YEAR_MONTH)
+
+ggplot(monthly_events, aes(x = YEAR_MONTH, y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  theme_minimal() +
+  labs(title = 'Number of Flood Events by Month (2020-2021)', x = 'Month', y = 'Number of Flood Events') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+```
+
+
+
+
+
+Most of the floods are concentrated in：2020.01-2020.09 and 2021.05-2021.09.
+
+
+### 1.2 Initial question
+
+
+Is the Property damage and Duration of floods related to different continents?
+
+(a) Property damage vs Duration
+
+(b) Property damage vs State
+
+
+
+### 1.3 EDA and Solution
+
+
+
+
+
+#### (a) Property damage vs Duration
+```{r}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(scales)
+data<-flood_events_combined
+# Function to convert yearmonthday and time to a datetime object
+convert_to_datetime <- function(yearmonth, day, time) {
+  year <- as.integer(yearmonth / 100)
+  month <- yearmonth %% 100
+  hour <- as.integer(time / 100)
+  minute <- time %% 100
+  as.POSIXct(paste(year, month, day, hour, minute), format="%Y %m %d %H %M")
+}
+
+# Apply the function to BEGIN and END columns to create datetime objects
+data$BEGIN_DATETIME <- mapply(convert_to_datetime, data$BEGIN_YEARMONTH, data$BEGIN_DAY, data$BEGIN_TIME)
+data$END_DATETIME <- mapply(convert_to_datetime, data$END_YEARMONTH, data$END_DAY, data$END_TIME)
+
+# Calculate the duration in hours
+data$DURATION_HOURS <- as.numeric(difftime(data$END_DATETIME, data$BEGIN_DATETIME, units="hours"))
+
+# Selecting the specific columns
+data <- data[, c("DURATION_HOURS", "DAMAGE_PROPERTY", "STATE")]
+
+# Display the first few rows of the selected data
+head(data)
+
+
+
+
+# Function to convert damage property values to numeric
+convert_damage <- function(damage) {
+  if (grepl("K", damage)) {
+    return(as.numeric(sub("K", "", damage)) * 1e3)
+  } else if (grepl("M", damage)) {
+    return(as.numeric(sub("M", "", damage)) * 1e6)
+  } else if (grepl("B", damage)) {
+    return(as.numeric(sub("B", "", damage)) * 1e9)
+  } else {
+    return(as.numeric(damage))
+  }
+}
+
+# Apply the conversion function to the DAMAGE_PROPERTY column
+data$DAMAGE_PROPERTY <- sapply(data$DAMAGE_PROPERTY, convert_damage)
+
+
+
+# Customize the theme for the plots
+theme_set(theme_bw() + theme(panel.grid.major = element_blank(), 
+                             panel.grid.minor = element_blank(), 
+                             plot.title = element_text(hjust = 0.5)))
+
+# Histogram and Boxplot of DURATION_HOURS
+ggplot(data, aes(x=DURATION_HOURS)) +
+  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Histogram of DURATION_HOURS") +
+  xlab("Duration (Hours)") +
+  ylab("Count")
+```
+
+
+DURATION_HOURS shows a highly right-skewed distribution, with a large number of events having short durations and a few events with very long durations.
+
+
+```{r}
+ggplot(data, aes(y=DURATION_HOURS)) +
+  geom_boxplot(fill = "orange", alpha = 0.7) +
+  scale_y_log10(labels = scales::comma) +
+  labs(title = "Boxplot of DURATION_HOURS") +
+  ylab("Duration (Hours)")
+```
+
+The boxplot for DURATION_HOURS reveals a significant number of outliers beyond the upper whisker, indicating some events with exceptionally long durations.
+
+```{r}
+# Histogram and Boxplot of DAMAGE_PROPERTY
+ggplot(data, aes(x=DAMAGE_PROPERTY)) +
+  geom_histogram(binwidth = 1, fill = "red", alpha = 0.7) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Histogram of DAMAGE_PROPERTY") +
+  xlab("Damage (USD)") +
+  ylab("Count")
+```
+
+DAMAGE_PROPERTY also shows a highly right-skewed distribution. Most property damage amounts are at the lower end of the scale, with a few instances of very high damage.
+
+
+```{r}
+ggplot(data, aes(y=DAMAGE_PROPERTY)) +
+  geom_boxplot(fill = "green", alpha = 0.7) +
+  scale_y_log10(labels = scales::comma) +
+  labs(title = "Boxplot of DAMAGE_PROPERTY") +
+  ylab("Damage (USD)")
+```
+
+The boxplot for DAMAGE_PROPERTY on a logarithmic scale indicates many outliers, with property damage varying significantly from one event to another.
+
+
+
+
+
+
+#### (b) Property damage vs State
+
+
+```{r}
+# Compute the correlation coefficient
+correlation <- cor(data$DURATION_HOURS, data$DAMAGE_PROPERTY, use = "complete.obs")
+
+# Scatter plot of DURATION_HOURS vs DAMAGE_PROPERTY
+ggplot(data, aes(x=DURATION_HOURS, y=DAMAGE_PROPERTY)) +
+  geom_point(alpha = 0.6, color = "purple") +
+  scale_x_log10(labels = scales::comma) +
+  scale_y_log10(labels = scales::comma) +
+  labs(title = paste("Scatter Plot of DURATION_HOURS vs DAMAGE_PROPERTY",
+                     "\nPearson Correlation:", round(correlation, 2))) +
+  xlab("Duration (Hours)") +
+  ylab("Damage (USD)")
+
+# Print the correlation coefficient
+print(paste("Pearson Correlation Coefficient:", round(correlation, 4)))
+```
+
+The scatter plot, with both axes on a logarithmic scale due to the wide range of values, also suggests that there is no clear pattern or relationship between the two variables. The points are widely dispersed, and no trend is visible.
+
+
+
+
+
+```{r}
+# Group by STATE and summarize counts and average damage
+state_summary <- data %>%
+  group_by(STATE) %>%
+  summarise(Count = n(),
+            Average_Damage = mean(DAMAGE_PROPERTY, na.rm = TRUE)) %>%
+  ungroup()
+
+# Identify the top 10 states with the highest counts
+top_states <- state_summary %>%
+  arrange(desc(Count)) %>%
+  slice_head(n = 10)
+
+# Create a bar plot for the average DAMAGE_PROPERTY of the top states
+ggplot(top_states, aes(x=reorder(STATE, Average_Damage), y=Average_Damage)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = "Average Property Damage by State (Top 10 by Count)",
+       x = "State",
+       y = "Average Damage (USD)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(top_states)
+
+
+```
+
+
+The states with significant losses per flood on average are: TEXAS , FLORIDA ,NORTH CAROLINA ,PENNSYLVANIA,NEW YORK.The losses in these states are quite significant, with New York at the most.
+
+
+
+
+
+## 2. Flooding data cleaning an EDA
+
+###  2.1 Cleaning and merge two dataset
 
 ```{r}
 library(tidyverse)
@@ -58,7 +300,7 @@ head(combined_flood_data_aggregated)
 
 
 
-###  1.2 Plotting for Visualization
+###  2.2 Plotting for Visualization
 
 
 
@@ -105,9 +347,9 @@ The third chart presents the total obligated amount for the Hazard Mitigation Gr
 From these charts, we can observe significant differences in the financial assistance provided by different disaster events. Some disasters have a much greater financial impact and require more assistance than others.
 
 
-## 2. explore Top 10 States by Disaster Counts recent 10 years
+## 3. Explore Top 10 States by Disaster Counts recent 10 years
 
-### 2.1 initial question
+### 3.1 Initial question
 
 (a) How does the number of disasters change over time? 
 
@@ -116,7 +358,7 @@ From these charts, we can observe significant differences in the financial assis
 (c) What does this indicate or reflect?
 
 
-### 2.2 EDA and Solution
+### 3.2 EDA and Solution
 
 
 #### (a) Overall bar chart of disasters over time
@@ -191,9 +433,9 @@ This means that these ten continents have the highest number of disasters, and t
 
 
 
-## 3. Population for whom poverty status is determined date cleaning and EDA
+## 4. Population for whom poverty status is determined date cleaning and EDA
 
-### 3.1 data cleaning and merge the data from 2020 and 2021
+### 4.1 Data cleaning and merge the data from 2020 and 2021
 
 
 
@@ -268,7 +510,7 @@ head(merged_poverty)
 
 
 
-### 3.2 Explore the sex and year for the poor people distribution
+### 4.2 Explore the sex and year for the poor people distribution
 
 
 ```{r}
@@ -313,7 +555,7 @@ The box plot provides more detailed information about the distribution of change
 
 
 
-### 3.3  Conclusion
+### 4.3  Conclusion
 
 
 
@@ -327,11 +569,11 @@ The box plot provides more detailed information about the distribution of change
 
 
 
-## 4. combine Population for whom poverty and flooding
+## 5. Combine Population for whom poverty and flooding
 
 
 
-### 4.1 data merge and  organization
+### 5.1 Data merge and  organization
 
 
 ```{r}
@@ -422,12 +664,12 @@ head(merged_data)
 
 
 
-### 4.2 initial question
+### 5.2 Initial question
 
 
 What conclusion can you draw by comparing the poverty rate in flood affected areas with the national average poverty rate and the average poverty rate in each state.
 
-### 4.3 EDA and Solution
+### 5.3 EDA and Solution
 
 ```{r}
 
